@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>담당 환자</h1>
+    <p class="muted">{{ patients|length }}명</p>
+  </div>
+</div>
+
+<!-- 검색 + 정렬 -->
+<div class="toolbar">
+  <input id="search" type="text" placeholder="🔍 이름 또는 병실 검색..." class="search-input">
+  <div class="sort-btns">
+    {% for key, (label, _) in sort_options.items() %}
+    <a class="sort-btn{% if sort==key %} active{% endif %}" href="{{ url_for('dashboard', sort=key) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- 환자 테이블 (가로 정렬) -->
+<div class="table-wrap card">
+  <table id="patient-table">
+    <thead>
+      <tr>
+        <th>병실</th>
+        <th>이름</th>
+        <th>나이·성별</th>
+        <th>최근 결과</th>
+        <th>검사 시간</th>
+        <th>다음 검사까지</th>
+        <th>상태</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in patients %}
+      <tr data-name="{{ p.name }}" data-room="{{ p.room_number }}"
+          class="{% if p.status=='퇴원' %}row-discharged{% elif p.status=='외출' %}row-out{% endif %}">
+        <td class="room">{{ p.room_number }}</td>
+        <td><a href="{{ url_for('patient_detail', patient_id=p.id) }}">{{ p.name }}</a></td>
+        <td>{{ p.age }}세 · {{ p.sex }}</td>
+        <td>
+          {% if p.last_res %}
+          <span class="badge {{ p.last_res|lower }}">{{ p.last_res }}</span>
+          {% else %}
+          <span class="badge neutral">미평가</span>
+          {% endif %}
+        </td>
+        <td class="time-cell">
+          {% if p.last_at %}
+          <span class="last-time" data-utc="{{ p.last_at }}">{{ p.last_at[:16] }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% if p.last_res == 'UNASSESSABLE' %}
+          <span class="countdown special">진정 변화 시 재평가</span>
+          {% elif p.last_at and p.last_res %}
+          <span class="countdown" data-assessed="{{ p.last_at }}" data-result="{{ p.last_res }}">계산 중…</span>
+          {% else %}
+          <span class="countdown overdue">즉시 평가 필요</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="status-tag
+            {%- if p.status=='입원중' %} s-in
+            {%- elif p.status=='외출' %} s-out
+            {%- else %} s-dis{%- endif %}">{{ p.status }}</span>
+        </td>
+        <td>
+          {% if p.status != '퇴원' %}
+          <a class="button btn-sm" href="{{ url_for('assessment', patient_id=p.id) }}">평가</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p id="no-result" class="empty" style="display:none">검색 결과가 없습니다.</p>
+</div>
+
+<script>
+// ── 검색 ──────────────────────────────────────────────
+const searchInput = document.getElementById('search');
+searchInput.addEventListener('input', function () {
+  const q = this.value.toLowerCase();
+  let visible = 0;
+  document.querySelectorAll('#patient-table tbody tr').forEach(function (row) {
+    const match = row.dataset.name.toLowerCase().includes(q) ||
+                  row.dataset.room.toLowerCase().includes(q);
+    row.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  document.getElementById('no-result').style.display = visible === 0 ? 'block' : 'none';
+});
+
+// ── 검사 시간 현지 시간으로 표시 ──────────────────────
+document.querySelectorAll('.last-time[data-utc]').forEach(function (el) {
+  const d = new Date(el.dataset.utc.replace(' ', 'T') + 'Z');
+  el.textContent = d.toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit'});
+});
+
+// ── 카운트다운 ────────────────────────────────────────
+function intervalMs(result) {
+  if (result === 'POSITIVE')  return 4 * 3600000;   // 4시간
+  if (result === 'NEGATIVE')  return 8 * 3600000;   // 8시간
+  return null;
+}
+function updateCountdowns() {
+  document.querySelectorAll('.countdown[data-assessed]').forEach(function (el) {
+    const assessed = new Date(el.dataset.assessed.replace(' ', 'T') + 'Z');
+    const ms = intervalMs(el.dataset.result);
+    if (!ms) return;
+    const remaining = assessed.getTime() + ms - Date.now();
+    if (remaining <= 0) {
+      el.textContent = '재평가 필요!';
+      el.className = 'countdown overdue';
+    } else {
+      const h = Math.floor(remaining / 3600000);
+      const m = Math.floor((remaining % 3600000) / 60000);
+      el.textContent = h + '시간 ' + m + '분 남음';
+      el.className = 'countdown ' + (h >= 2 ? 'ok' : h >= 1 ? 'warn' : 'urgent');
+    }
+  });
+}
+setInterval(updateCountdowns, 30000);
+updateCountdowns();
+</script>
+{% endblock %}

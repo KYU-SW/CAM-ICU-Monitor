@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}간호사 추가{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('admin') }}">← 관리자 페이지</a>
+<section class="login-card" style="max-width:560px">
+  <h1>간호사 계정 추가</h1>
+  <p class="muted">회원가입 완료 후 바로 로그인 가능합니다.</p>
+  <form method="post">
+    <label>이름<input name="name" required placeholder="홍길동"></label>
+    <label>아이디<input name="username" required placeholder="nurse03" autocomplete="off"></label>
+    <label>사번<input name="employee_no" required placeholder="N-1003"></label>
+    <label>소속 병동
+      <select name="ward_id" required>
+        <option value="">선택하세요</option>
+        {% for w in wards %}
+        <option value="{{ w.id }}">{{ w.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>비밀번호<input type="password" name="password" required minlength="4" autocomplete="new-password"></label>
+    <label>비밀번호 확인<input type="password" name="confirm" required autocomplete="new-password"></label>
+    <button>계정 생성</button>
+  </form>
+</section>
+{% endblock %}

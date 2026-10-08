@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}{% if patient %}환자 수정{% else %}환자 추가{% endif %}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('admin_patients') }}">← 환자 목록</a>
+<section class="login-card" style="max-width:600px">
+  <h1>{% if patient %}환자 정보 수정{% else %}새 환자 추가{% endif %}</h1>
+  <form method="post">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <label>환자 코드<input name="patient_code" value="{{ patient.patient_code if patient else default_code }}" {% if patient %}readonly{% endif %} required></label>
+      <label>이름<input name="name" value="{{ patient.name if patient else '' }}" required></label>
+      <label>병실<input name="room_number" value="{{ patient.room_number if patient else '' }}" required></label>
+      <label>나이<input name="age" type="number" min="0" max="120" value="{{ patient.age if patient else '' }}" required></label>
+      <label>성별
+        <select name="sex" required>
+          <option value="남" {% if not patient or patient.sex=='남' %}selected{% endif %}>남</option>
+          <option value="여" {% if patient and patient.sex=='여' %}selected{% endif %}>여</option>
+        </select>
+      </label>
+      <label>병동
+        <select name="ward_id" required>
+          {% for w in wards %}
+          <option value="{{ w.id }}" {% if patient and patient.ward_id==w.id %}selected{% endif %}>{{ w.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>상태
+        <select name="status">
+          {% for s in ['입원중','외출','퇴원'] %}
+          <option {% if patient and patient.status==s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>담당 간호사
+        <select name="nurse_id">
+          <option value="">미배정</option>
+          {% for n in nurses %}
+          <option value="{{ n.id }}" {% if assigned_nurse_id and assigned_nurse_id==n.id %}selected{% endif %}>{{ n.name }} ({{ n.employee_no }})</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>진단명<input name="diagnosis" value="{{ patient.diagnosis if patient else '' }}" placeholder="예: 폐렴, 패혈증"></label>
+    <label>입원일<input type="date" name="admission_date" value="{{ patient.admission_date if patient else '' }}"></label>
+    <label style="display:flex;align-items:center;gap:10px;font-weight:700;margin-top:14px">
+      <input type="checkbox" name="sedative_use" style="width:auto" {% if patient and patient.sedative_use %}checked{% endif %}>
+      진정제·진통제 사용 중
+    </label>
+    <button class="submit">{% if patient %}수정 저장{% else %}환자 추가{% endif %}</button>
+  </form>
+</section>
+{% endblock %}

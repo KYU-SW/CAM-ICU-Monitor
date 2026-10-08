@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+<a class="back" href="{{ url_for('patient_detail', patient_id=patient.id) }}">← 환자 정보</a>
+<h1>{{ patient.name }} 평가</h1>
+
+{% if prev %}
+<div class="prev-box">
+  <b>직전 평가 참고</b> &nbsp;
+  {{ prev.assessed_at[:16] }} &nbsp;
+  RASS {{ '%+d'|format(prev.rass_score) }} &nbsp;
+  <span class="badge {{ prev.cam_result|lower }}">{{ prev.cam_result }}</span>
+  {% if prev.memo %} &nbsp; 메모: {{ prev.memo }}{% endif %}
+</div>
+{% endif %}
+
+<form method="post" class="assessment-form">
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">1</span> 표준 절차 관찰 결과 선택</h2>
+    <p class="muted">무자극 → 음성 자극 → 신체 자극 순으로 관찰한 결과를 선택하세요.</p>
+    {% for text, score in obs_options %}
+    <label class="obs-option{% if form_data.get('observation_index')==loop.index0|string %} obs-selected{% endif %}">
+      <input type="radio" name="observation_index" value="{{ loop.index0 }}"
+        {% if form_data.get('observation_index')==loop.index0|string %}checked{% endif %} required>
+      <span class="obs-label">{{ text }}</span>
+    </label>{% endfor %}
+  </section>
+
+  <section class="card step-card" id="cam-section">
+    <h2 class="step-title"><span class="step-num">2</span> CAM-ICU 특징 평가</h2>
+    {% set labels=['F1: 급성 변화 또는 변동 경과','F2: 주의력 장애','F3: 의식수준 변화','F4: 비체계적 사고'] %}
+    {% for i in range(1,5) %}
+    <fieldset><legend>{{ labels[i-1] }}</legend>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="yes" {% if form_data.get('feature'~i)=='yes' %}checked{% endif %}> 있음</label>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="no"  {% if form_data.get('feature'~i)=='no'  %}checked{% endif %}> 없음</label>
+    </fieldset>{% endfor %}
+    <p class="formula">양성 공식: F1 AND F2 AND (F3 OR F4) — 서버에서만 계산됩니다</p>
+    <div id="unassessable-notice" class="notice" style="display:none">RASS −4·−5 선택 시 UNASSESSABLE로 저장됩니다.</div>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">3</span> AI 참고 RASS 점수 확인</h2>
+    <p class="muted">1단계 관찰 결과를 바탕으로 AI가 참고용 점수를 제안합니다.</p>
+    <button class="secondary" name="action" value="suggest" type="submit" formnovalidate>AI 참고 점수 확인</button>
+    {% if suggestion %}
+    <div class="ai-box">
+      {% if suggestion.score is not none %}<strong>AI 참고 RASS: {{ '%+d'|format(suggestion.score) }}</strong>
+      {% else %}<strong>AI 상태: {{ suggestion.status }}</strong>{% endif %}
+      <p>{{ suggestion.reason }}</p>
+      <small>⚠️ AI 점수는 참고용이며 최종 RASS 점수는 간호사가 직접 확정합니다.</small>
+    </div>{% endif %}
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">4</span> 간호사 최종 RASS 확정</h2>
+    <p class="muted">AI 참고 점수는 자동 적용되지 않습니다. 직접 선택해 주세요.</p>
+    <label>최종 RASS 점수
+      <select name="rass_score" id="rass-select" required>
+        <option value="">선택하세요</option>
+        {% for n in range(4,-6,-1) %}<option value="{{ n }}">{{ '%+d'|format(n) }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="notice">−4 또는 −5를 선택하면 CAM-ICU는 UNASSESSABLE로 저장됩니다.</p>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">5</span> 메모 (선택)</h2>
+    <textarea name="memo" rows="2" placeholder="진정제 용량 변경, 특이 관찰 사항 등 자유 입력..." style="width:100%;padding:10px;border:1px solid #bdcbd9;border-radius:9px;font:inherit;resize:vertical">{{ form_data.get('memo','') }}</textarea>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">6</span> 최종 평가 저장</h2>
+    <button class="submit" name="action" value="save" type="submit">평가 결과 저장</button>
+  </section>
+</form>
+
+<script>
+(function(){
+  var sel=document.getElementById('rass-select');
+  var cam=document.getElementById('cam-section');
+  var inputs=cam.querySelectorAll('input');
+  var notice=document.getElementById('unassessable-notice');
+  function gate(){var locked=sel.value!==''&&parseInt(sel.value,10)<=-4;
+    cam.classList.toggle('disabled',locked);inputs.forEach(function(x){x.disabled=locked;});
+    notice.style.display=locked?'block':'none';}
+  sel.addEventListener('change',gate); gate();
+  document.querySelectorAll('input[name=observation_index]').forEach(function(r){
+    r.addEventListener('change',function(){
+      document.querySelectorAll('.obs-option').forEach(function(el){el.classList.remove('obs-selected');});
+      if(r.checked)r.closest('.obs-option').classList.add('obs-selected');});});
+}());
+</script>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}관리자 페이지{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>병동 관리</h1><p class="muted">간호사 계정 관리</p></div>
+  <a class="button" href="{{ url_for('register_nurse') }}">+ 간호사 추가</a>
+</div>
+
+<section class="card">
+  <h2>등록된 간호사</h2>
+  {% if nurses %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>이름</th><th>아이디</th><th>사번</th><th>병동</th><th>담당 환자</th><th>등록일</th><th></th></tr></thead>
+      <tbody>
+        {% for n in nurses %}
+        <tr>
+          <td><b>{{ n.name }}</b></td>
+          <td>{{ n.username }}</td>
+          <td>{{ n.employee_no }}</td>
+          <td>{{ n.ward_name }}</td>
+          <td>{{ n.patient_count }}명</td>
+          <td>{{ n.created_at[:10] }}</td>
+          <td>
+            <button class="btn-danger" onclick="openModal({{ n.id }})">삭제</button>
+          </td>
+        </tr>
+
+        <!-- 삭제 확인 모달 -->
+        <div id="modal-{{ n.id }}" class="modal-overlay" style="display:none"
+             onclick="if(event.target===this)closeModal({{ n.id }})">
+          <div class="modal-box">
+            <h3>간호사 계정 삭제</h3>
+            <p><b>{{ n.name }}</b> 간호사 계정을 삭제하려면<br>
+               해당 간호사의 아이디와 비밀번호를 입력하세요.</p>
+            <form method="post" action="{{ url_for('delete_nurse', nurse_id=n.id) }}">
+              <label>간호사 아이디
+                <input name="confirm_username" required autocomplete="off"
+                       placeholder="{{ n.username }}">
+              </label>
+              <label>간호사 비밀번호
+                <input type="password" name="confirm_password" required autocomplete="off">
+              </label>
+              <div class="modal-btns">
+                <button type="button" class="secondary" onclick="closeModal({{ n.id }})">취소</button>
+                <button type="submit" class="btn-danger">삭제 확인</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">등록된 간호사가 없습니다.</p>
+  {% endif %}
+</section>
+
+<script>
+function openModal(id)  { document.getElementById('modal-' + id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById('modal-' + id).style.display = 'none'; }
+</script>
+{% endblock %}

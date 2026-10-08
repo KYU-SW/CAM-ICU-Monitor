@@ -1,0 +1,25 @@
+{% extends 'base.html' %}{% block content %}
+<a class="back" href="{{ url_for('patient_detail', patient_id=row.patient_id) }}">← 평가 기록</a>
+<section class="result-card">
+  <p>{{ row.patient_name }} · {{ row.room_number }}</p>
+  <h1 class="result {{ row.cam_result|lower }}">{{ row.cam_result }}</h1>
+  {% if row.cam_result == 'UNASSESSABLE' %}
+  <p class="unassessable-msg">RASS {{ row.rass_score }}로 인해 CAM-ICU 평가가 불가능합니다.</p>
+  {% else %}
+  <p>RASS {{ '%+d'|format(row.rass_score) }} · 서버 공식으로 계산됨</p>
+  <div class="feature-row">
+    <span>F1 {{ '있음' if row.feature1 else '없음' }}</span>
+    <span>F2 {{ '있음' if row.feature2 else '없음' }}</span>
+    <span>F3 {{ '있음' if row.feature3 else '없음' }}</span>
+    <span>F4 {{ '있음' if row.feature4 else '없음' }}</span>
+  </div>
+  {% endif %}
+  <dl>
+    <dt>평가자</dt><dd>{{ row.nurse_name }}</dd>
+    <dt>평가 시각</dt><dd>{{ row.assessed_at }}</dd>
+    <dt>관찰 결과</dt><dd>{{ row.observation }}</dd>
+    <dt>AI 상태</dt>
+    <dd>{{ row.ai_status }}{% if row.ai_rass is not none %} · 참고 RASS {{ '%+d'|format(row.ai_rass) }}{% endif %}</dd>
+  </dl>
+</section>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}환자 관리{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>환자 관리</h1></div>
+  <a class="button" href="{{ url_for('admin_patient_new') }}">+ 환자 추가</a>
+</div>
+
+<div class="folder-layout">
+
+  <!-- 왼쪽 폴더 패널 -->
+  <aside class="folder-panel">
+    <p class="folder-panel-title">병동 선택</p>
+
+    <a class="folder-item{% if not ward_filter %} active{% endif %}"
+       href="{{ url_for('admin_patients', q=q) }}">
+      <span class="folder-icon">📁</span>
+      <span class="folder-name">전체 환자</span>
+      <span class="folder-badge">{{ total_count }}</span>
+    </a>
+
+    {% for w in wards %}
+    <a class="folder-item{% if ward_filter == w.id|string %} active{% endif %}"
+       href="{{ url_for('admin_patients', q=q, ward=w.id) }}">
+      <span class="folder-icon">📂</span>
+      <span class="folder-name">{{ w.name }}</span>
+      <span class="folder-badge">{{ ward_counts.get(w.id, 0) }}</span>
+    </a>
+    {% endfor %}
+  </aside>
+
+  <!-- 오른쪽 콘텐츠 -->
+  <div class="folder-content">
+
+    <!-- 현재 위치 + 검색 -->
+    <div class="folder-breadcrumb">
+      <span>
+        {% if ward_filter %}
+          {% for w in wards %}{% if w.id|string == ward_filter %}📂 {{ w.name }}{% endif %}{% endfor %}
+        {% else %}
+          📁 전체 환자
+        {% endif %}
+      </span>
+      <span class="muted">— {{ total }}명</span>
+    </div>
+
+    <form class="toolbar" method="get">
+      {% if ward_filter %}<input type="hidden" name="ward" value="{{ ward_filter }}">{% endif %}
+      <input name="q" value="{{ q }}" type="text"
+             placeholder="🔍 이름·코드·병실 검색..." class="search-input">
+      <button type="submit" class="secondary" style="padding:9px 16px">검색</button>
+      {% if q %}
+      <a href="{{ url_for('admin_patients', ward=ward_filter) }}"
+         class="secondary" style="padding:9px 14px;border-radius:9px;text-decoration:none;display:inline-block">✕</a>
+      {% endif %}
+    </form>
+
+    <!-- 환자 테이블 -->
+    <div class="table-wrap card">
+      <table>
+        <thead>
+          <tr><th>코드</th><th>이름</th><th>나이·성별</th><th>병실</th><th>병동</th>
+              <th>진단명</th><th>담당 간호사</th><th>상태</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for p in patients %}
+          <tr>
+            <td class="muted">{{ p.patient_code }}</td>
+            <td><b>{{ p.name }}</b></td>
+            <td>{{ p.age }}세 · {{ p.sex }}</td>
+            <td>{{ p.room_number }}</td>
+            <td><span class="badge-ward">{{ p.ward_name }}</span></td>
+            <td>{{ p.diagnosis or '—' }}</td>
+            <td>{{ p.nurse_name or '미배정' }}</td>
+            <td><span class="status-tag
+              {%- if p.status=='입원중' %} s-in
+              {%- elif p.status=='외출' %} s-out
+              {%- else %} s-dis{%- endif %}">{{ p.status }}</span></td>
+            <td style="white-space:nowrap">
+              <a class="secondary btn-sm"
+                 href="{{ url_for('admin_patient_edit', patient_id=p.id) }}"
+                 style="padding:5px 10px;border-radius:7px;text-decoration:none;display:inline-block">수정</a>
+              <form method="post" action="{{ url_for('admin_patient_delete', patient_id=p.id) }}"
+                    style="display:inline"
+                    onsubmit="return confirm('{{ p.name }} 환자를 삭제하시겠습니까?\n평가 기록도 함께 삭제됩니다.')">
+                <button class="btn-danger">삭제</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not patients %}
+          <tr><td colspan="9" class="empty">해당 조건의 환자가 없습니다.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 페이지네이션 -->
+    {% if total_pages > 1 %}
+    <div class="pagination">
+      {% if page > 1 %}
+      <a href="?q={{ q }}&ward={{ ward_filter }}&page={{ page-1 }}" class="sort-btn">← 이전</a>
+      {% endif %}
+      <span class="muted">{{ page }} / {{ total_pages }}페이지</span>
+      {% if page < total_pages %}
+      <a href="?q={{ q }}&ward={{ ward_filter }}&page={{ page+1 }}" class="sort-btn">다음 →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div><!-- /folder-content -->
+</div><!-- /folder-layout -->
+{% endblock %}

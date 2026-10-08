@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}통계{% endblock %}
+{% block content %}
+<h1>병동 통계</h1>
+
+<!-- 요약 카드 -->
+<div class="stats">
+  <div><b>{{ total_p | int }}</b><span>총 환자</span></div>
+  <div><b>{{ total_a | int }}</b><span>총 평가 건수</span></div>
+  <div><b>{{ pos_rate }}%</b><span>섬망 양성률</span></div>
+  <div><b>{{ recent_7 }}</b><span>최근 7일 평가</span></div>
+</div>
+
+<!-- 차트 2×2 -->
+<div class="chart-grid">
+  <section class="card"><h2>CAM-ICU 결과 분포</h2><div class="chart-wrap"><canvas id="c-cam"></canvas></div></section>
+  <section class="card"><h2>RASS 점수 분포</h2><div class="chart-wrap"><canvas id="c-rass"></canvas></div></section>
+  <section class="card chart-wide"><h2>주별 섬망 발생 추이 (최근 12주)</h2><div class="chart-wrap-wide"><canvas id="c-weekly"></canvas></div></section>
+  <section class="card"><h2>병동별 현황</h2><div class="chart-wrap"><canvas id="c-ward"></canvas></div></section>
+</div>
+
+<!-- 병동별 테이블 -->
+<section class="card" style="margin-top:18px">
+  <h2>병동별 상세</h2>
+  <table>
+    <thead><tr><th>병동</th><th>환자 수</th><th>평가 건수</th><th>POSITIVE</th><th>양성률</th></tr></thead>
+    <tbody>
+      {% for w in ward_stats %}
+      <tr>
+        <td>{{ w.name }}</td>
+        <td>{{ w.patients }}</td>
+        <td>{{ w.assessments }}</td>
+        <td><span class="badge positive">{{ w.positive or 0 }}</span></td>
+        <td>{{ '%.1f'|format((w.positive or 0)/w.assessments*100) if w.assessments else '—' }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- POSITIVE 상위 환자 -->
+{% if top_pos %}
+<section class="card" style="margin-top:18px">
+  <h2>POSITIVE 상위 환자 (Top 10)</h2>
+  <table>
+    <thead><tr><th>이름</th><th>병실</th><th>POSITIVE 횟수</th></tr></thead>
+    <tbody>
+      {% for p in top_pos %}
+      <tr><td>{{ p.name }}</td><td>{{ p.room_number }}</td><td><span class="badge positive">{{ p.cnt }}회</span></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+var D = {{ chart | safe }};
+var cam = D.cam;
+// CAM 도넛
+new Chart(document.getElementById('c-cam'),{type:'doughnut',data:{
+  labels:['POSITIVE','NEGATIVE','UNASSESSABLE'],
+  datasets:[{data:[cam.POSITIVE||0,cam.NEGATIVE||0,cam.UNASSESSABLE||0],
+    backgroundColor:['#d64545','#23865f','#654d96'],borderWidth:2}]
+},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+
+// RASS 막대
+new Chart(document.getElementById('c-rass'),{type:'bar',data:{
+  labels:D.rass.labels.map(function(v){return(v>=0?'+':'')+v;}),
+  datasets:[{label:'건수',data:D.rass.data,backgroundColor:'#3979d8',borderRadius:4}]
+},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+  scales:{y:{beginAtZero:true},x:{grid:{display:false}}}}});
+
+// 주별 꺾은선
+new Chart(document.getElementById('c-weekly'),{type:'line',data:{
+  labels:D.weekly.labels,
+  datasets:[
+    {label:'전체 평가',data:D.weekly.total,borderColor:'#3979d8',backgroundColor:'rgba(57,121,216,0.1)',fill:true,tension:0.3},
+    {label:'POSITIVE',data:D.weekly.positive,borderColor:'#d64545',backgroundColor:'rgba(214,69,69,0.08)',fill:true,tension:0.3}
+  ]
+},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},
+  scales:{y:{beginAtZero:true},x:{grid:{display:false},ticks:{maxRotation:45}}}}});
+
+// 병동 막대
+new Chart(document.getElementById('c-ward'),{type:'bar',data:{
+  labels:D.wards.labels,
+  datasets:[
+    {label:'환자',data:D.wards.patients,backgroundColor:'#3979d8',borderRadius:4},
+    {label:'평가',data:D.wards.assessments,backgroundColor:'#23865f',borderRadius:4}
+  ]
+},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},
+  scales:{y:{beginAtZero:true},x:{grid:{display:false}}}}});
+</script>
+{% endblock %}
