@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block content %}
+<a class="back" href="{{ url_for('patient_detail', patient_id=patient.id) }}">← 환자 정보</a>
+<h1>{{ patient.name }} 평가</h1>
+
+{% if prev %}
+<div class="prev-box">
+  <b>직전 평가 참고</b> &nbsp;
+  {{ prev.assessed_at[:16] }} &nbsp;
+  RASS {{ '%+d'|format(prev.rass_score) }} &nbsp;
+  <span class="badge {{ prev.cam_result|lower }}">{{ prev.cam_result }}</span>
+  {% if prev.memo %} &nbsp; 메모: {{ prev.memo }}{% endif %}
+</div>
+{% endif %}
+
+<form method="post" class="assessment-form">
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">1</span> 표준 절차 관찰 결과 선택</h2>
+    <p class="muted">단계별로 한 항목씩 선택하세요. 반응이 없으면 다음 자극 단계가 열립니다.</p>
+    <input type="hidden" name="observation_index" id="observation-index" value="{{ form_data.get('observation_index','') }}">
+
+    <h3>① 무자극 관찰</h3>
+    {% for text, score in obs_options[:5] %}
+    <label class="obs-option"><input type="radio" name="stage_none" value="{{ loop.index0 }}"><span class="obs-label">{{ text }}</span></label>
+    {% endfor %}
+    <label class="obs-option"><input type="radio" name="stage_none" value="next"><span class="obs-label">깨어 있지 않음 → 음성 자극으로</span></label>
+
+    <div id="stage-voice" style="display:none">
+      <h3>② 음성 자극</h3>
+      {% for text, score in obs_options[5:8] %}
+      <label class="obs-option"><input type="radio" name="stage_voice" value="{{ loop.index0 + 5 }}"><span class="obs-label">{{ text }}</span></label>
+      {% endfor %}
+      <label class="obs-option"><input type="radio" name="stage_voice" value="next"><span class="obs-label">목소리에 반응 없음 → 신체 자극으로</span></label>
+    </div>
+
+    <div id="stage-body" style="display:none">
+      <h3>③ 신체 자극</h3>
+      {% for text, score in obs_options[8:] %}
+      <label class="obs-option"><input type="radio" name="stage_body" value="{{ loop.index0 + 8 }}"><span class="obs-label">{{ text }}</span></label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card step-card" id="cam-section">
+    <h2 class="step-title"><span class="step-num">2</span> CAM-ICU 특징 평가</h2>
+    {% set labels={1:'F1: 급성 변화 또는 변동 경과',2:'F2: 주의력 장애',4:'F4: 비체계적 사고'} %}
+    {% for i in [1,2,4] %}
+    <fieldset><legend>{{ labels[i] }}</legend>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="yes" {% if form_data.get('feature'~i)=='yes' %}checked{% endif %}> 있음</label>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="no"  {% if form_data.get('feature'~i)=='no'  %}checked{% endif %}> 없음</label>
+    </fieldset>{% endfor %}
+    <p class="formula">양성 공식: F1 AND F2 AND (F3 OR F4) — F3는 RASS가 0이 아니면 자동 양성, 판정은 서버에서만 계산됩니다</p>
+    <div id="unassessable-notice" class="notice" style="display:none">RASS −4·−5 선택 시 UNASSESSABLE로 저장됩니다.</div>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">3</span> AI 참고 RASS 점수 확인</h2>
+    <p class="muted">1단계 관찰 결과를 바탕으로 AI가 참고용 점수를 제안합니다.</p>
+    <button class="secondary" name="action" value="suggest" type="submit" formnovalidate>AI 참고 점수 확인</button>
+    {% if suggestion %}
+    <div class="ai-box">
+      {% if suggestion.score is not none %}<strong>AI 참고 RASS: {{ '%+d'|format(suggestion.score) }}</strong>
+      {% else %}<strong>AI 상태: {{ suggestion.status }}</strong>{% endif %}
+      <p>{{ suggestion.reason }}</p>
+      <small>⚠️ AI 점수는 참고용이며 최종 RASS 점수는 간호사가 직접 확정합니다.</small>
+    </div>{% endif %}
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">4</span> 간호사 최종 RASS 확정</h2>
+    <p class="muted">AI 참고 점수는 자동 적용되지 않습니다. 직접 선택해 주세요.</p>
+    <label>최종 RASS 점수
+      <select name="rass_score" id="rass-select" required>
+        <option value="">선택하세요</option>
+        {% for n in range(4,-6,-1) %}<option value="{{ n }}">{{ '%+d'|format(n) }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="notice">−4 또는 −5를 선택하면 CAM-ICU는 UNASSESSABLE로 저장됩니다.</p>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">5</span> 메모 (선택)</h2>
+    <textarea name="memo" rows="2" placeholder="진정제 용량 변경, 특이 관찰 사항 등 자유 입력..." style="width:100%;padding:10px;border:1px solid #bdcbd9;border-radius:9px;font:inherit;resize:vertical">{{ form_data.get('memo','') }}</textarea>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">6</span> 최종 평가 저장</h2>
+    <button class="submit" name="action" value="save" type="submit">평가 결과 저장</button>
+  </section>
+</form>
+
+<script>
+(function(){
+  var sel=document.getElementById('rass-select');
+  var cam=document.getElementById('cam-section');
+  var inputs=cam.querySelectorAll('input');
+  var notice=document.getElementById('unassessable-notice');
+  function gate(){var locked=sel.value!==''&&parseInt(sel.value,10)<=-4;
+    cam.classList.toggle('disabled',locked);inputs.forEach(function(x){x.disabled=locked;});
+    notice.style.display=locked?'block':'none';}
+  sel.addEventListener('change',gate); gate();
+
+  var hidden=document.getElementById('observation-index');
+  var voice=document.getElementById('stage-voice');
+  var body=document.getElementById('stage-body');
+  function picked(name){var el=document.querySelector('input[name='+name+']:checked');return el?el.value:'';}
+  function clearStage(name){document.querySelectorAll('input[name='+name+']').forEach(function(x){x.checked=false;});}
+  function sync(){
+    var first=picked('stage_none');
+    if(first!=='next'){clearStage('stage_voice');}
+    var second=picked('stage_voice');
+    if(second!=='next'){clearStage('stage_body');}
+    voice.style.display=first==='next'?'block':'none';
+    body.style.display=second==='next'?'block':'none';
+    var result=first;
+    if(first==='next'){result=second==='next'?picked('stage_body'):second;}
+    hidden.value=result;
+    document.querySelectorAll('.obs-option').forEach(function(el){
+      el.classList.toggle('obs-selected',el.querySelector('input').checked);});
+  }
+  function check(name,value){var el=document.querySelector('input[name='+name+'][value="'+value+'"]');if(el)el.checked=true;}
+  var saved=parseInt(hidden.value,10);
+  if(saved>=0&&saved<=4){check('stage_none',saved);}
+  if(saved>=5){check('stage_none','next');}
+  if(saved>=5&&saved<=7){check('stage_voice',saved);}
+  if(saved>=8){check('stage_voice','next');check('stage_body',saved);}
+  document.querySelectorAll('input[name^=stage_]').forEach(function(r){r.addEventListener('change',sync);});
+  sync();
+}());
+</script>
+{% endblock %}

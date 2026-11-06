@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}마이페이지{% endblock %}
+{% block content %}
+<h1>마이페이지</h1>
+
+<section class="profile card">
+  <div class="avatar">{{ current_user.name[0] }}</div>
+  <div>
+    <h2>{{ current_user.name }}</h2>
+    <p>{{ current_user.employee_no }} · {{ current_user.ward_name }}</p>
+    <span class="badge neutral">간호사</span>
+  </div>
+</section>
+
+<div class="stats">
+  <div><b>{{ stats.total or 0 }}</b><span>전체 평가</span></div>
+  <div><b>{{ stats.positive or 0 }}</b><span>양성</span></div>
+  <div><b>{{ stats.negative or 0 }}</b><span>음성</span></div>
+  <div><b>{{ stats.unassessable or 0 }}</b><span>평가 불가</span></div>
+</div>
+
+<!-- 환자 목록 + 정렬 -->
+<section class="card">
+  <div class="sort-bar">
+    <span class="sort-label">내 환자 목록 ({{ patients|length }}명)</span>
+    <div class="sort-btns">
+      {% for key, (label, _) in sort_options.items() %}
+      <a class="sort-btn{% if sort == key %} active{% endif %}"
+         href="{{ url_for('mypage', sort=key) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if patients %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>병실</th><th>이름</th><th>나이·성별</th><th>최근 평가</th><th>결과</th><th>상태</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in patients %}
+        <tr class="{% if p.status == '퇴원' %}row-discharged{% elif p.status == '외출' %}row-out{% endif %}">
+          <td class="room">{{ p.room_number }}</td>
+          <td><a href="{{ url_for('patient_detail', patient_id=p.id) }}">{{ p.name }}</a></td>
+          <td>{{ p.age }}세 · {{ p.sex }}</td>
+          <td>{% if p.last_at %}{{ p.last_at[:16] }}{% else %}<span class="muted">미평가</span>{% endif %}</td>
+          <td>
+            {% if p.last_res %}
+            <span class="badge {{ p.last_res|lower }}">{{ p.last_res }}</span>
+            {% else %}
+            <span class="badge neutral">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('update_patient_status', patient_id=p.id) }}" class="status-form">
+              <select name="status" onchange="this.form.submit()" class="status-sel
+                {%- if p.status == '입원중' %} status-in
+                {%- elif p.status == '외출' %} status-out
+                {%- else %} status-discharged{%- endif %}">
+                <option{% if p.status == '입원중' %} selected{% endif %}>입원중</option>
+                <option{% if p.status == '외출' %} selected{% endif %}>외출</option>
+                <option{% if p.status == '퇴원' %} selected{% endif %}>퇴원</option>
+              </select>
+            </form>
+          </td>
+          <td>
+            {% if p.status != '퇴원' %}
+            <a class="button btn-sm" href="{{ url_for('assessment', patient_id=p.id) }}">평가</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">담당 환자가 없습니다.</p>
+  {% endif %}
+</section>
+{% endblock %}

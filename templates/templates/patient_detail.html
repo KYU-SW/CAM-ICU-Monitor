@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back" href="{{ url_for('dashboard') }}">← 환자 목록</a>
+    <h1>{{ patient.name }}</h1>
+    <p>{{ patient.patient_code }} · {{ patient.room_number }} · {{ patient.age }}세 · {{ patient.sex }}</p>
+  </div>
+  <a class="button" href="{{ url_for('assessment', patient_id=patient.id) }}">새 평가</a>
+</div>
+
+<!-- 꺾은선 그래프 -->
+{% if records %}
+<section class="card" style="margin-bottom:18px">
+  <h2>RASS 추이</h2>
+  <div style="position:relative;height:220px">
+    <canvas id="rass-chart"></canvas>
+  </div>
+  <div class="chart-legend">
+    <span class="legend-dot" style="background:#d64545"></span>POSITIVE &nbsp;
+    <span class="legend-dot" style="background:#23865f"></span>NEGATIVE &nbsp;
+    <span class="legend-dot" style="background:#654d96"></span>UNASSESSABLE
+  </div>
+</section>
+{% endif %}
+
+<!-- 평가 기록 테이블 -->
+<section class="card">
+  <h2>평가 기록</h2>
+  {% if records %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>일시</th><th>간호사</th><th>RASS</th><th>CAM-ICU</th><th></th></tr></thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td>{{ r.assessed_at[:16] }}</td>
+          <td>{{ r.nurse_name }}</td>
+          <td>{{ '%+d'|format(r.rass_score) }}</td>
+          <td><span class="badge {{ r.cam_result|lower }}">{{ r.cam_result }}</span></td>
+          <td><a href="{{ url_for('result', assessment_id=r.id) }}">상세</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">아직 평가 기록이 없습니다.</p>
+  {% endif %}
+</section>
+
+{% if records %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(function () {
+  var raw = {{ chart_data | safe }};
+  // 시간 라벨 현지 시간으로 변환
+  var labels = raw.labels.map(function (l) {
+    var d = new Date(l.replace(' ', 'T') + 'Z');
+    return d.toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit'});
+  });
+  new Chart(document.getElementById('rass-chart'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'RASS',
+        data: raw.rass,
+        borderColor: '#3979d8',
+        backgroundColor: 'rgba(57,121,216,0.08)',
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true,
+        pointBackgroundColor: raw.colors,
+        pointBorderColor: raw.colors,
+        pointRadius: 7,
+        pointHoverRadius: 9,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function (ctx) {
+              return 'RASS ' + (ctx.raw >= 0 ? '+' : '') + ctx.raw +
+                     '  (' + raw.results[ctx.dataIndex] + ')';
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          min: -5, max: 4,
+          ticks: { stepSize: 1,
+            callback: function (v) { return (v >= 0 ? '+' : '') + v; }
+          },
+          grid: { color: 'rgba(0,0,0,0.06)' }
+        },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}());
+</script>
+{% endif %}
+{% endblock %}

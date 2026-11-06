@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}KY 로그인{% endblock %}
+{% block content %}
+<section class="login-card">
+  <h1>KY 로그인</h1>
+  <p class="muted">간호사 및 관리자 계정으로 로그인하세요.</p>
+  <form method="post">
+    <label>아이디<input name="username" required autocomplete="username"></label>
+    <label>비밀번호<input type="password" name="password" required autocomplete="current-password"></label>
+    <button>로그인</button>
+  </form>
+  <div class="demo">
+    <b>시연 계정</b><br>
+    간호사: nurse01 / 1234 &nbsp;·&nbsp; nurse02 / 1234<br>
+    관리자: admin / admin1234
+  </div>
+</section>
+{% endblock %}
