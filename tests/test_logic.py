@@ -7,30 +7,33 @@ from cam_icu_logic import calculate_cam_icu, suggest_rass_by_index, OBSERVATION_
 
 class CamIcuLogicTest(unittest.TestCase):
     # ── calculate_cam_icu ──
-    def test_positive(self):
-        self.assertEqual(calculate_cam_icu(0, True, True, True, False), "POSITIVE")
-        self.assertEqual(calculate_cam_icu(0, True, True, False, True), "POSITIVE")
+    def test_positive_rass_zero_needs_f4(self):
+        self.assertEqual(calculate_cam_icu(0, True, True, True), "POSITIVE")
+        self.assertEqual(calculate_cam_icu(0, True, True, False), "NEGATIVE")
+
+    def test_positive_rass_nonzero_by_f3(self):
+        self.assertEqual(calculate_cam_icu(-1, True, True, False), "POSITIVE")
+        self.assertEqual(calculate_cam_icu(1, True, True, False), "POSITIVE")
 
     def test_negative(self):
-        self.assertEqual(calculate_cam_icu(0, True, False, True, True), "NEGATIVE")
-        self.assertEqual(calculate_cam_icu(0, False, True, True, True), "NEGATIVE")
-        self.assertEqual(calculate_cam_icu(0, True, True, False, False), "NEGATIVE")
+        self.assertEqual(calculate_cam_icu(-1, True, False, True), "NEGATIVE")
+        self.assertEqual(calculate_cam_icu(-1, False, True, True), "NEGATIVE")
 
     def test_gate(self):
         self.assertEqual(calculate_cam_icu(-4), "UNASSESSABLE")
         self.assertEqual(calculate_cam_icu(-5), "UNASSESSABLE")
 
     def test_rass_minus3_uses_features(self):
-        self.assertEqual(calculate_cam_icu(-3, True, True, True, False), "POSITIVE")
-        self.assertEqual(calculate_cam_icu(-3, False, True, True, True), "NEGATIVE")
+        self.assertEqual(calculate_cam_icu(-3, True, True, False), "POSITIVE")
+        self.assertEqual(calculate_cam_icu(-3, False, True, True), "NEGATIVE")
 
     def test_invalid_rass(self):
         with self.assertRaises(ValueError):
-            calculate_cam_icu(5, True, True, True, True)
+            calculate_cam_icu(5, True, True, True)
 
     def test_missing_features(self):
         with self.assertRaises(ValueError):
-            calculate_cam_icu(0, True, True, None, False)
+            calculate_cam_icu(0, True, True, None)
 
     # ── suggest_rass_by_index ──
     def test_suggest_by_index_scores(self):

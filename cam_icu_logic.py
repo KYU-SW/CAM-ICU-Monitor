@@ -13,32 +13,38 @@ OBSERVATION_OPTIONS = [
 ]
 
 
-def calculate_cam_icu(rass_score, f1=None, f2=None, f3=None, f4=None):
-    """공식: F1 AND F2 AND (F3 OR F4). 서버에서만 계산한다."""
+def derive_f3(rass_score):
+    """F3(의식수준 변화)는 RASS가 0이 아니면 양성이다."""
+    return rass_score != 0
+
+
+def calculate_cam_icu(rass_score, f1=None, f2=None, f4=None):
+    """공식: F1 AND F2 AND (F3 OR F4). F3는 RASS로 서버에서 자동 계산한다."""
     if not isinstance(rass_score, int) or not -5 <= rass_score <= 4:
         raise ValueError("RASS 점수는 -5부터 +4 사이의 정수여야 합니다.")
     if rass_score <= -4:
         return "UNASSESSABLE"
-    features = (f1, f2, f3, f4)
+    features = (f1, f2, f4)
     if any(type(value) is not bool for value in features):
-        raise ValueError("CAM-ICU 특징 1~4를 모두 선택해야 합니다.")
+        raise ValueError("CAM-ICU 특징 F1, F2, F4를 모두 선택해야 합니다.")
+    f3 = derive_f3(rass_score)
     return "POSITIVE" if f1 and f2 and (f3 or f4) else "NEGATIVE"
 
 
 def suggest_rass_by_index(index):
-    """선택형 관찰 항목 인덱스를 기반으로 참고 RASS 제안."""
+    """표준 절차 관찰 항목을 RASS 점수로 환산한다 (규칙 매핑, AI 아님)."""
     if not isinstance(index, int) or not 0 <= index < len(OBSERVATION_OPTIONS):
         raise ValueError("유효하지 않은 관찰 항목 인덱스입니다.")
     text, score = OBSERVATION_OPTIONS[index]
     return {
         "status": "SCORED",
         "score": score,
-        "reason": f"선택한 관찰 항목을 기반으로 한 참고 제안입니다.",
+        "reason": "선택한 관찰 항목의 RASS 정의에 따른 환산값입니다.",
     }
 
 
 def suggest_rass(observation):
-    """하위 호환성 유지용 텍스트 기반 제안. 최종 RASS는 간호사가 직접 확정한다."""
+    """키워드 규칙 방식 (AI 비교 기준용, eval_ai.py에서 사용). 앱 화면에서는 쓰지 않는다."""
     text = (observation or "").strip().lower()
     if not text:
         return {"status": "ABSTAIN", "score": None, "reason": "관찰 기록이 없어 제안하지 않았습니다."}

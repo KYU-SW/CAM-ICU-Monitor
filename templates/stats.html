@@ -1,7 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}통계{% endblock %}
 {% block content %}
-<h1>병동 통계</h1>
+<h1>{{ scope }} 통계</h1>
+{% if not is_admin %}<p class="muted">소속 병동 집계만 표시합니다. 환자 이름은 담당 환자만 보입니다.</p>{% endif %}
 
 <!-- 요약 카드 -->
 <div class="stats">
@@ -41,7 +42,7 @@
 <!-- POSITIVE 상위 환자 -->
 {% if top_pos %}
 <section class="card" style="margin-top:18px">
-  <h2>POSITIVE 상위 환자 (Top 10)</h2>
+  <h2>POSITIVE 상위 환자 (Top 10){% if not is_admin %} · 내 담당{% endif %}</h2>
   <table>
     <thead><tr><th>이름</th><th>병실</th><th>POSITIVE 횟수</th></tr></thead>
     <tbody>

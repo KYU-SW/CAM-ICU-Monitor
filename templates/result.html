@@ -17,9 +17,15 @@
   <dl>
     <dt>평가자</dt><dd>{{ row.nurse_name }}</dd>
     <dt>평가 시각</dt><dd>{{ row.assessed_at }}</dd>
-    <dt>관찰 결과</dt><dd>{{ row.observation }}</dd>
-    <dt>AI 상태</dt>
-    <dd>{{ row.ai_status }}{% if row.ai_rass is not none %} · 참고 RASS {{ '%+d'|format(row.ai_rass) }}{% endif %}</dd>
+    <dt>표준 절차 관찰</dt><dd>{{ row.observation }}</dd>
+    <dt>관찰 서술</dt><dd>{{ row.narrative or '—' }}</dd>
+    <dt>AI 해석</dt>
+    <dd>{% if row.ai_status == 'SCORED' %}제안 RASS {{ '%+d'|format(row.ai_rass) }}
+          · {{ '간호사 확정과 일치' if row.ai_rass == row.rass_score else '간호사가 다르게 확정' }}
+        {% elif row.ai_status == 'NOT_RUN' %}사용 안 함
+        {% else %}{{ {'ABSTAIN':'판단 보류','UNAVAILABLE':'사용 불가','ERROR':'오류'}.get(row.ai_status, row.ai_status) }}{% endif %}
+        {% if row.ai_reason %}<br><small>{{ row.ai_reason }}</small>{% endif %}
+        {% if row.ai_evidence %}<br><small>근거 인용: “{{ row.ai_evidence }}”</small>{% endif %}</dd>
   </dl>
 </section>
 {% endblock %}

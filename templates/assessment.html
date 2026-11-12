@@ -15,51 +15,71 @@
 
 <form method="post" class="assessment-form">
   <section class="card step-card">
-    <h2 class="step-title"><span class="step-num">1</span> 표준 절차 관찰 결과 선택</h2>
-    <p class="muted">무자극 → 음성 자극 → 신체 자극 순으로 관찰한 결과를 선택하세요.</p>
-    {% for text, score in obs_options %}
-    <label class="obs-option{% if form_data.get('observation_index')==loop.index0|string %} obs-selected{% endif %}">
-      <input type="radio" name="observation_index" value="{{ loop.index0 }}"
-        {% if form_data.get('observation_index')==loop.index0|string %}checked{% endif %} required>
-      <span class="obs-label">{{ text }}</span>
-    </label>{% endfor %}
-  </section>
-
-  <section class="card step-card" id="cam-section">
-    <h2 class="step-title"><span class="step-num">2</span> CAM-ICU 특징 평가</h2>
-    {% set labels=['F1: 급성 변화 또는 변동 경과','F2: 주의력 장애','F3: 의식수준 변화','F4: 비체계적 사고'] %}
-    {% for i in range(1,5) %}
-    <fieldset><legend>{{ labels[i-1] }}</legend>
-      <label class="radio"><input type="radio" name="feature{{ i }}" value="yes" {% if form_data.get('feature'~i)=='yes' %}checked{% endif %}> 있음</label>
-      <label class="radio"><input type="radio" name="feature{{ i }}" value="no"  {% if form_data.get('feature'~i)=='no'  %}checked{% endif %}> 없음</label>
-    </fieldset>{% endfor %}
-    <p class="formula">양성 공식: F1 AND F2 AND (F3 OR F4) — 서버에서만 계산됩니다</p>
-    <div id="unassessable-notice" class="notice" style="display:none">RASS −4·−5 선택 시 UNASSESSABLE로 저장됩니다.</div>
-  </section>
-
-  <section class="card step-card">
-    <h2 class="step-title"><span class="step-num">3</span> AI 참고 RASS 점수 확인</h2>
-    <p class="muted">1단계 관찰 결과를 바탕으로 AI가 참고용 점수를 제안합니다.</p>
-    <button class="secondary" name="action" value="suggest" type="submit" formnovalidate>AI 참고 점수 확인</button>
+    <h2 class="step-title"><span class="step-num">1</span> 관찰 서술 + AI 해석</h2>
+    <p class="muted">본 그대로 적으세요. 어떤 자극에 어떻게 반응했는지가 들어가야 AI가 판단할 수 있습니다.</p>
+    <textarea name="narrative" rows="3" maxlength="600" placeholder="예) 이름 부르니 눈 떴는데 5초쯤 보다가 다시 감음" style="width:100%;padding:10px;border:1px solid #bdcbd9;border-radius:9px;font:inherit;resize:vertical">{{ form_data.get('narrative','') }}</textarea>
+    <p class="notice">⚠️ 서술은 외부 AI 서비스로 전송됩니다. 환자 이름·등록번호 등 개인정보를 쓰지 마세요.</p>
+    <button class="secondary" name="action" value="suggest" type="submit" formnovalidate>AI 해석 요청</button>
     {% if suggestion %}
-    <div class="ai-box">
-      {% if suggestion.score is not none %}<strong>AI 참고 RASS: {{ '%+d'|format(suggestion.score) }}</strong>
-      {% else %}<strong>AI 상태: {{ suggestion.status }}</strong>{% endif %}
+    <div class="ai-box" id="ai-box" data-score="{{ '' if suggestion.score is none else suggestion.score }}">
+      {% if suggestion.score is not none %}<strong>AI 제안 RASS: {{ '%+d'|format(suggestion.score) }}</strong>
+      {% else %}<strong>AI {{ {'ABSTAIN':'판단 보류','UNAVAILABLE':'사용 불가','ERROR':'오류'}.get(suggestion.status, suggestion.status) }}</strong>{% endif %}
       <p>{{ suggestion.reason }}</p>
-      <small>⚠️ AI 점수는 참고용이며 최종 RASS 점수는 간호사가 직접 확정합니다.</small>
+      {% if suggestion.evidence %}<p>근거 인용: “{{ suggestion.evidence }}”</p>{% endif %}
+      <small>AI 제안은 자동 적용되지 않습니다. 최종 RASS는 간호사가 확정합니다.</small>
     </div>{% endif %}
   </section>
 
   <section class="card step-card">
-    <h2 class="step-title"><span class="step-num">4</span> 간호사 최종 RASS 확정</h2>
-    <p class="muted">AI 참고 점수는 자동 적용되지 않습니다. 직접 선택해 주세요.</p>
+    <h2 class="step-title"><span class="step-num">2</span> 표준 절차 관찰 (간호사 판정)</h2>
+    <p class="muted">단계별로 한 항목씩 선택하세요. 반응이 없으면 다음 자극 단계가 열립니다.</p>
+    <input type="hidden" name="observation_index" id="observation-index" value="{{ form_data.get('observation_index','') }}">
+
+    <h3>① 무자극 관찰</h3>
+    {% for text, score in obs_options[:5] %}
+    <label class="obs-option"><input type="radio" name="stage_none" value="{{ loop.index0 }}" data-score="{{ score }}"><span class="obs-label">{{ text }}</span></label>
+    {% endfor %}
+    <label class="obs-option"><input type="radio" name="stage_none" value="next"><span class="obs-label">깨어 있지 않음 → 음성 자극으로</span></label>
+
+    <div id="stage-voice" style="display:none">
+      <h3>② 음성 자극</h3>
+      {% for text, score in obs_options[5:8] %}
+      <label class="obs-option"><input type="radio" name="stage_voice" value="{{ loop.index0 + 5 }}" data-score="{{ score }}"><span class="obs-label">{{ text }}</span></label>
+      {% endfor %}
+      <label class="obs-option"><input type="radio" name="stage_voice" value="next"><span class="obs-label">목소리에 반응 없음 → 신체 자극으로</span></label>
+    </div>
+
+    <div id="stage-body" style="display:none">
+      <h3>③ 신체 자극</h3>
+      {% for text, score in obs_options[8:] %}
+      <label class="obs-option"><input type="radio" name="stage_body" value="{{ loop.index0 + 8 }}" data-score="{{ score }}"><span class="obs-label">{{ text }}</span></label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card step-card">
+    <h2 class="step-title"><span class="step-num">3</span> 최종 RASS 확정</h2>
+    <p class="muted">2단계 선택에 따라 자동으로 채워집니다. 확인 후 필요하면 수정하세요.</p>
     <label>최종 RASS 점수
       <select name="rass_score" id="rass-select" required>
         <option value="">선택하세요</option>
-        {% for n in range(4,-6,-1) %}<option value="{{ n }}">{{ '%+d'|format(n) }}</option>{% endfor %}
+        {% for n in range(4,-6,-1) %}<option value="{{ n }}" {% if form_data.get('rass_score')==n|string %}selected{% endif %}>{{ '%+d'|format(n) }}</option>{% endfor %}
       </select>
     </label>
+    <div id="mismatch" class="notice" style="display:none;background:#fff4e5;color:#8a4b00">⚠️ AI 제안과 다릅니다. 관찰 서술과 선택을 다시 확인하세요.</div>
     <p class="notice">−4 또는 −5를 선택하면 CAM-ICU는 UNASSESSABLE로 저장됩니다.</p>
+  </section>
+
+  <section class="card step-card" id="cam-section">
+    <h2 class="step-title"><span class="step-num">4</span> CAM-ICU 특징 평가</h2>
+    {% set labels={1:'F1: 급성 변화 또는 변동 경과',2:'F2: 주의력 장애',4:'F4: 비체계적 사고'} %}
+    {% for i in [1,2,4] %}
+    <fieldset><legend>{{ labels[i] }}</legend>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="yes" {% if form_data.get('feature'~i)=='yes' %}checked{% endif %}> 있음</label>
+      <label class="radio"><input type="radio" name="feature{{ i }}" value="no"  {% if form_data.get('feature'~i)=='no'  %}checked{% endif %}> 없음</label>
+    </fieldset>{% endfor %}
+    <p class="formula">양성 공식: F1 AND F2 AND (F3 OR F4) — F3는 RASS가 0이 아니면 자동 양성, 판정은 서버에서만 계산됩니다</p>
+    <div id="unassessable-notice" class="notice" style="display:none">RASS −4·−5 선택 시 UNASSESSABLE로 저장됩니다.</div>
   </section>
 
   <section class="card step-card">
@@ -79,14 +99,46 @@
   var cam=document.getElementById('cam-section');
   var inputs=cam.querySelectorAll('input');
   var notice=document.getElementById('unassessable-notice');
-  function gate(){var locked=sel.value!==''&&parseInt(sel.value,10)<=-4;
+  var aiBox=document.getElementById('ai-box');
+  var mismatch=document.getElementById('mismatch');
+  function compare(){
+    var ai=aiBox?aiBox.dataset.score:'';
+    mismatch.style.display=(ai!==''&&sel.value!==''&&ai!==sel.value)?'block':'none';
+  }
+  function gate(){compare();var locked=sel.value!==''&&parseInt(sel.value,10)<=-4;
     cam.classList.toggle('disabled',locked);inputs.forEach(function(x){x.disabled=locked;});
     notice.style.display=locked?'block':'none';}
   sel.addEventListener('change',gate); gate();
-  document.querySelectorAll('input[name=observation_index]').forEach(function(r){
-    r.addEventListener('change',function(){
-      document.querySelectorAll('.obs-option').forEach(function(el){el.classList.remove('obs-selected');});
-      if(r.checked)r.closest('.obs-option').classList.add('obs-selected');});});
+
+  var hidden=document.getElementById('observation-index');
+  var voice=document.getElementById('stage-voice');
+  var body=document.getElementById('stage-body');
+  function picked(name){var el=document.querySelector('input[name='+name+']:checked');return el?el.value:'';}
+  function clearStage(name){document.querySelectorAll('input[name='+name+']').forEach(function(x){x.checked=false;});}
+  function sync(){
+    var first=picked('stage_none');
+    if(first!=='next'){clearStage('stage_voice');}
+    var second=picked('stage_voice');
+    if(second!=='next'){clearStage('stage_body');}
+    voice.style.display=first==='next'?'block':'none';
+    body.style.display=second==='next'?'block':'none';
+    var result=first;
+    if(first==='next'){result=second==='next'?picked('stage_body'):second;}
+    var changed=hidden.value!==result;
+    hidden.value=result;
+    var chosen=document.querySelector('input[name^=stage_][value="'+result+'"]');
+    if(changed&&chosen&&chosen.dataset.score!==undefined){sel.value=chosen.dataset.score;gate();}
+    document.querySelectorAll('.obs-option').forEach(function(el){
+      el.classList.toggle('obs-selected',el.querySelector('input').checked);});
+  }
+  function check(name,value){var el=document.querySelector('input[name='+name+'][value="'+value+'"]');if(el)el.checked=true;}
+  var saved=parseInt(hidden.value,10);
+  if(saved>=0&&saved<=4){check('stage_none',saved);}
+  if(saved>=5){check('stage_none','next');}
+  if(saved>=5&&saved<=7){check('stage_voice',saved);}
+  if(saved>=8){check('stage_voice','next');check('stage_body',saved);}
+  document.querySelectorAll('input[name^=stage_]').forEach(function(r){r.addEventListener('change',sync);});
+  sync();
 }());
 </script>
 {% endblock %}

@@ -40,6 +40,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from werkzeug.security import generate_password_hash
+from cam_icu_logic import calculate_cam_icu
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH  = Path(os.environ.get("CAM_ICU_DB_PATH", BASE_DIR / "data" / "cam_icu.db"))
@@ -189,11 +190,18 @@ def init_db():
             nurse_id INTEGER NOT NULL REFERENCES users(id),
             assessed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             observation TEXT NOT NULL,
+            narrative TEXT DEFAULT '',
             ai_status TEXT NOT NULL, ai_rass INTEGER,
+            ai_reason TEXT DEFAULT '', ai_evidence TEXT DEFAULT '',
             rass_score INTEGER NOT NULL CHECK(rass_score BETWEEN -5 AND 4),
             feature1 INTEGER, feature2 INTEGER, feature3 INTEGER, feature4 INTEGER,
             cam_result TEXT NOT NULL CHECK(cam_result IN ('POSITIVE','NEGATIVE','UNASSESSABLE')),
             memo TEXT DEFAULT '')""")
+        # v10 이하 DB에도 새 칼럼 추가
+        cols = {r[1] for r in db.execute("PRAGMA table_info(assessments)")}
+        for col in ("narrative", "ai_reason", "ai_evidence"):
+            if col not in cols:
+                db.execute(f"ALTER TABLE assessments ADD COLUMN {col} TEXT DEFAULT ''")
         db.execute("""CREATE TABLE IF NOT EXISTS audit_logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER, action TEXT NOT NULL, detail TEXT,
@@ -339,7 +347,6 @@ def _seed_bulk_assessments(db):
             rass    = rng.choice(_RASS_CHOICES)
             obs_idx = _rass_to_obs_idx(rass)
             obs     = _OBS[obs_idx]
-            ai_rass = _AI_RASS[obs_idx]
             dt      = base + timedelta(
                 seconds=rng.randint(0, int((now - base).total_seconds())))
             assessed_at = dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -349,29 +356,22 @@ def _seed_bulk_assessments(db):
                 cam = 'UNASSESSABLE'
                 f1 = f2 = f3 = f4 = None
             else:
-                # POSITIVE 33% / NEGATIVE 67% of assessable
-                # → 전체로는 POSITIVE 28%, NEGATIVE 57%  [Krewulak 2018]
+                f3 = 0 if rass == 0 else 1          # RASS가 0이 아니면 F3 양성
                 if rng.random() < 0.33:
-                    # POSITIVE: F1∧F2∧(F3∨F4) 만족하도록 생성
-                    cam = 'POSITIVE'
                     f1, f2 = 1, 1
-                    f3, f4 = rng.choice([(1,0),(0,1),(1,1)])
+                    f4 = 1 if f3 == 0 else rng.choice([0, 1])
                 else:
-                    # NEGATIVE: F1∧F2∧(F3∨F4) 불만족
-                    cam = 'NEGATIVE'
-                    # F1 또는 F2 없거나, F3+F4 모두 없음
-                    pattern = rng.choice(['no_f1','no_f2','no_f3f4'])
+                    patterns = ['no_f1', 'no_f2'] if f3 else ['no_f1', 'no_f2', 'no_f4']
+                    pattern = rng.choice(patterns)
                     if pattern == 'no_f1':
-                        f1, f2 = 0, rng.choice([0,1])
-                        f3, f4 = rng.choice([0,1]), rng.choice([0,1])
+                        f1, f2, f4 = 0, rng.choice([0, 1]), rng.choice([0, 1])
                     elif pattern == 'no_f2':
-                        f1, f2 = rng.choice([0,1]), 0
-                        f3, f4 = rng.choice([0,1]), rng.choice([0,1])
+                        f1, f2, f4 = rng.choice([0, 1]), 0, rng.choice([0, 1])
                     else:
-                        f1, f2 = rng.choice([0,1]), rng.choice([0,1])
-                        f3, f4 = 0, 0
+                        f1, f2, f4 = rng.choice([0, 1]), rng.choice([0, 1]), 0
+                cam = calculate_cam_icu(rass, bool(f1), bool(f2), bool(f4))
 
-            rows.append((pid, nid, assessed_at, obs, 'SCORED', ai_rass,
+            rows.append((pid, nid, assessed_at, obs, 'NOT_RUN', None,
                          rass, f1, f2, f3, f4, cam, ''))
 
     db.executemany(

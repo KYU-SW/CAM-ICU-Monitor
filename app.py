@@ -1,8 +1,10 @@
 import json, os, sys, traceback
+from datetime import datetime, timedelta, timezone
 from functools import wraps
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
-from cam_icu_logic import calculate_cam_icu, suggest_rass_by_index, OBSERVATION_OPTIONS
+from cam_icu_logic import calculate_cam_icu, derive_f3, OBSERVATION_OPTIONS
+from ai_rass import suggest_rass_ai
 from database import connect_db, init_db, log_action
 
 app = Flask(__name__)
@@ -326,34 +328,48 @@ def admin_patient_delete(patient_id):
 @app.route("/stats")
 @login_required
 def stats():
+    user = get_current_user()
+    is_admin = user["role"] == "ADMIN"
+    # 간호사는 자기 병동 집계만, 환자 이름은 담당 환자만 본다.
+    pf = "" if is_admin else " AND p.ward_id=?"
+    pa = () if is_admin else (user["ward_id"],)
+    base = " FROM assessments a JOIN patients p ON p.id=a.patient_id WHERE 1=1" + pf
     with connect_db() as db:
-        total_p  = db.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
-        total_a  = db.execute("SELECT COUNT(*) FROM assessments").fetchone()[0]
+        total_p  = db.execute("SELECT COUNT(*) FROM patients p WHERE 1=1" + pf, pa).fetchone()[0]
+        total_a  = db.execute("SELECT COUNT(*)" + base, pa).fetchone()[0]
         recent_7 = db.execute(
-            "SELECT COUNT(*) FROM assessments WHERE assessed_at>=datetime('now','-7 days')"
-        ).fetchone()[0]
+            "SELECT COUNT(*)" + base + " AND a.assessed_at>=datetime('now','-7 days')", pa).fetchone()[0]
         cam_dist = {r["cam_result"]: r["cnt"] for r in db.execute(
-            "SELECT cam_result, COUNT(*) cnt FROM assessments GROUP BY cam_result").fetchall()}
+            "SELECT a.cam_result, COUNT(*) cnt" + base + " GROUP BY a.cam_result", pa).fetchall()}
         rass_d   = db.execute(
-            "SELECT rass_score, COUNT(*) cnt FROM assessments"
-            " GROUP BY rass_score ORDER BY rass_score").fetchall()
+            "SELECT a.rass_score, COUNT(*) cnt" + base +
+            " GROUP BY a.rass_score ORDER BY a.rass_score", pa).fetchall()
         weekly   = db.execute(
-            "SELECT strftime('%Y-%m-%d',assessed_at,'weekday 0','-6 days') AS wk,"
-            " COUNT(*) total, SUM(cam_result='POSITIVE') positive"
-            " FROM assessments WHERE assessed_at>=datetime('now','-84 days')"
-            " GROUP BY wk ORDER BY wk").fetchall()
+            "SELECT strftime('%Y-%m-%d',a.assessed_at,'weekday 0','-6 days') AS wk,"
+            " COUNT(*) total, SUM(a.cam_result='POSITIVE') positive" + base +
+            " AND a.assessed_at>=datetime('now','-84 days')"
+            " GROUP BY wk ORDER BY wk", pa).fetchall()
         ward_s   = db.execute(
             "SELECT w.name, COUNT(DISTINCT p.id) patients,"
             " COUNT(a.id) assessments,"
             " SUM(CASE WHEN a.cam_result='POSITIVE' THEN 1 ELSE 0 END) positive"
             " FROM wards w JOIN patients p ON p.ward_id=w.id"
             " LEFT JOIN assessments a ON a.patient_id=p.id"
-            " GROUP BY w.id ORDER BY w.id").fetchall()
-        top_pos  = db.execute(
-            "SELECT p.name, p.room_number, COUNT(*) cnt"
-            " FROM assessments a JOIN patients p ON p.id=a.patient_id"
-            " WHERE a.cam_result='POSITIVE'"
-            " GROUP BY a.patient_id ORDER BY cnt DESC LIMIT 10").fetchall()
+            " WHERE 1=1" + pf + " GROUP BY w.id ORDER BY w.id", pa).fetchall()
+        if is_admin:
+            top_pos = db.execute(
+                "SELECT p.name, p.room_number, COUNT(*) cnt"
+                " FROM assessments a JOIN patients p ON p.id=a.patient_id"
+                " WHERE a.cam_result='POSITIVE'"
+                " GROUP BY a.patient_id ORDER BY cnt DESC LIMIT 10").fetchall()
+        else:
+            top_pos = db.execute(
+                "SELECT p.name, p.room_number, COUNT(*) cnt"
+                " FROM assessments a JOIN patients p ON p.id=a.patient_id"
+                " JOIN patient_assignments pa ON pa.patient_id=p.id AND pa.user_id=?"
+                " WHERE a.cam_result='POSITIVE'"
+                " GROUP BY a.patient_id ORDER BY cnt DESC LIMIT 10",
+                (user["id"],)).fetchall()
     pos_rate = round(cam_dist.get("POSITIVE", 0) / total_a * 100, 1) if total_a else 0
     chart = json.dumps({
         "cam":    cam_dist,
@@ -366,7 +382,8 @@ def stats():
                    "patients":    [r["patients"] for r in ward_s],
                    "assessments": [r["assessments"] for r in ward_s]},
     })
-    return render_template("stats.html",
+    scope = "전체 병동" if is_admin else user["ward_name"]
+    return render_template("stats.html", scope=scope, is_admin=is_admin,
                            total_p=total_p, total_a=total_a,
                            recent_7=recent_7, pos_rate=pos_rate,
                            chart=chart, ward_stats=ward_s, top_pos=top_pos)
@@ -381,6 +398,75 @@ def dashboard():
     patients = get_patients_sorted(session["user_id"], sort)
     return render_template("dashboard.html", patients=patients,
                            sort=sort, sort_options=SORT_OPTIONS)
+
+# ── PWA 서비스 워커 ───────────────────────────────────
+@app.route("/sw.js")
+def service_worker():
+    response = send_from_directory(app.static_folder, "sw.js")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+# ── 근무 인계 요약 ────────────────────────────────────
+REASSESS_HOURS = {"POSITIVE": 4, "NEGATIVE": 8}
+
+def format_kst(utc_dt):
+    return (utc_dt + timedelta(hours=9)).strftime("%m-%d %H:%M")
+
+def build_handover_item(patient, rows):
+    item = {"patient": patient, "latest": rows[0] if rows else None,
+            "flags": [], "priority": 9, "assessed_text": "—", "due_text": "—"}
+    if not rows:
+        item["flags"].append("미평가")
+        item["priority"] = 3
+        return item
+
+    latest = rows[0]
+    previous = rows[1] if len(rows) > 1 else None
+    assessed_at = datetime.strptime(latest["assessed_at"][:19], "%Y-%m-%d %H:%M:%S")
+    item["assessed_text"] = format_kst(assessed_at)
+
+    hours = REASSESS_HOURS.get(latest["cam_result"])
+    if hours:
+        due_at = assessed_at + timedelta(hours=hours)
+        item["due_text"] = format_kst(due_at)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if due_at < now:
+            item["flags"].append("재평가 마감 초과")
+            item["priority"] = 0
+
+    if previous:
+        if latest["cam_result"] == "POSITIVE" and previous["cam_result"] != "POSITIVE":
+            item["flags"].append("POSITIVE 전환")
+            item["priority"] = min(item["priority"], 1)
+        elif latest["cam_result"] != "POSITIVE" and previous["cam_result"] == "POSITIVE":
+            item["flags"].append("POSITIVE 해제")
+        change = latest["rass_score"] - previous["rass_score"]
+        if abs(change) >= 2:
+            item["flags"].append(f"RASS {previous['rass_score']:+d} → {latest['rass_score']:+d}")
+            item["priority"] = min(item["priority"], 2)
+
+    if latest["cam_result"] == "POSITIVE":
+        item["priority"] = min(item["priority"], 2)
+    return item
+
+@app.route("/handover")
+@nurse_required
+def handover():
+    with connect_db() as db:
+        patients = db.execute(
+            "SELECT p.* FROM patients p "
+            "JOIN patient_assignments pa ON pa.patient_id=p.id "
+            "WHERE pa.user_id=? AND p.status='입원중' ORDER BY p.room_number",
+            (session["user_id"],)).fetchall()
+        items = []
+        for patient in patients:
+            rows = db.execute(
+                "SELECT rass_score, cam_result, assessed_at, memo FROM assessments "
+                "WHERE patient_id=? ORDER BY assessed_at DESC, id DESC LIMIT 2",
+                (patient["id"],)).fetchall()
+            items.append(build_handover_item(patient, rows))
+    items.sort(key=lambda item: item["priority"])
+    return render_template("handover.html", items=items)
 
 # ── 환자 상세 ─────────────────────────────────────────
 @app.route("/patients/<int:patient_id>")
@@ -435,48 +521,60 @@ def assessment(patient_id):
             "SELECT * FROM assessments WHERE patient_id=? ORDER BY id DESC LIMIT 1",
             (patient_id,)).fetchone()
     if request.method == "POST":
-        obs_str   = request.form.get("observation_index", "")
-        form_data = {"observation_index": obs_str,
-                     **{f"feature{i}": request.form.get(f"feature{i}") for i in range(1, 5)}}
+        form_data = {key: request.form.get(key, "") for key in
+                     ("observation_index", "narrative", "rass_score", "memo",
+                      "feature1", "feature2", "feature4")}
+        narrative = form_data["narrative"].strip()
         action = request.form.get("action", "save")
-        try:
-            suggestion = suggest_rass_by_index(int(obs_str))
-        except Exception:
-            suggestion = None
+
         if action == "suggest":
-            if suggestion is None:
-                flash("표준 절차 관찰 결과를 선택해 주세요.", "error")
+            suggestion = suggest_rass_ai(narrative)
+            # 저장할 때 같은 서술에 대한 AI 결과인지 서버에서 확인하기 위해 세션에 보관
+            session["ai_suggestion"] = {"patient_id": patient_id, "narrative": narrative,
+                                        **suggestion}
+            log_action(session["user_id"], "AI_SUGGEST",
+                       f"patient_id={patient_id} status={suggestion['status']}")
             return render_template("assessment.html", patient=patient,
                                    suggestion=suggestion, form_data=form_data,
                                    obs_options=OBSERVATION_OPTIONS, prev=prev)
+
+        saved_ai = session.get("ai_suggestion") or {}
+        if saved_ai.get("patient_id") == patient_id and saved_ai.get("narrative") == narrative and narrative:
+            suggestion = saved_ai
         try:
-            if suggestion is None:
+            obs_str = form_data["observation_index"]
+            if not obs_str.isdigit() or int(obs_str) >= len(OBSERVATION_OPTIONS):
                 raise ValueError("표준 절차 관찰 결과를 선택해 주세요.")
             obs_text = OBSERVATION_OPTIONS[int(obs_str)][0]
-            rass_str = request.form.get("rass_score", "")
-            if not rass_str:
+            if not form_data["rass_score"]:
                 raise ValueError("최종 RASS 점수를 선택해 주세요.")
-            rass = int(rass_str)
-            memo = request.form.get("memo", "").strip()
+            rass = int(form_data["rass_score"])
+            memo = form_data["memo"].strip()
             if rass <= -4:
                 cam_result = calculate_cam_icu(rass)
                 db_feat    = (None, None, None, None)
             else:
-                for i in range(1, 5):
-                    if request.form.get(f"feature{i}") not in {"yes", "no"}:
-                        raise ValueError("CAM-ICU 특징 1~4를 모두 선택해 주세요.")
-                feat       = tuple(request.form.get(f"feature{i}") == "yes" for i in range(1, 5))
-                db_feat    = feat
-                cam_result = calculate_cam_icu(rass, *feat)
+                for i in (1, 2, 4):
+                    if form_data[f"feature{i}"] not in {"yes", "no"}:
+                        raise ValueError("CAM-ICU 특징 F1, F2, F4를 모두 선택해 주세요.")
+                f1, f2, f4 = (form_data[f"feature{i}"] == "yes" for i in (1, 2, 4))
+                db_feat    = (f1, f2, derive_f3(rass), f4)
+                cam_result = calculate_cam_icu(rass, f1, f2, f4)
+            ai_status = suggestion["status"] if suggestion else "NOT_RUN"
+            ai_score  = suggestion["score"] if suggestion else None
+            ai_reason = suggestion["reason"] if suggestion else ""
+            ai_evid   = suggestion.get("evidence", "") if suggestion else ""
             with connect_db() as db:
                 cur = db.execute(
-                    "INSERT INTO assessments(patient_id,nurse_id,observation,ai_status,ai_rass,"
+                    "INSERT INTO assessments(patient_id,nurse_id,observation,narrative,"
+                    "ai_status,ai_rass,ai_reason,ai_evidence,"
                     "rass_score,feature1,feature2,feature3,feature4,cam_result,memo)"
-                    " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (patient_id, session["user_id"], obs_text,
-                     suggestion["status"], suggestion["score"],
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (patient_id, session["user_id"], obs_text, narrative,
+                     ai_status, ai_score, ai_reason, ai_evid,
                      rass, *db_feat, cam_result, memo))
                 new_assessment_id = cur.lastrowid
+            session.pop("ai_suggestion", None)
             log_action(session["user_id"], "ASSESSMENT_CREATED",
                        f"assessment_id={new_assessment_id}")
             return redirect(url_for("result", assessment_id=new_assessment_id))

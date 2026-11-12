@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>근무 인계 요약</h1>
+<p class="muted">담당 환자 {{ items|length }}명 · 확인이 먼저 필요한 환자부터 표시합니다.</p>
+<section class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>병실</th><th>이름</th><th>최근 결과</th><th>RASS</th><th>최근 평가</th><th>재평가 마감</th><th>확인 사항</th><th>메모</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td>{{ item.patient.room_number }}</td>
+        <td><a href="{{ url_for('patient_detail', patient_id=item.patient.id) }}">{{ item.patient.name }}</a></td>
+        {% if item.latest %}
+          <td><span class="badge {{ item.latest.cam_result|lower }}">{{ item.latest.cam_result }}</span></td>
+          <td>{{ '%+d'|format(item.latest.rass_score) }}</td>
+        {% else %}
+          <td><span class="badge neutral">미평가</span></td><td>—</td>
+        {% endif %}
+        <td>{{ item.assessed_text }}</td>
+        <td>{{ item.due_text }}</td>
+        <td>{{ item.flags|join(' · ') if item.flags else '—' }}</td>
+        <td>{{ item.latest.memo if item.latest and item.latest.memo else '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8">담당 환자가 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

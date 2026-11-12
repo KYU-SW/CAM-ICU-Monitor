@@ -1,0 +1,13 @@
+{
+  "name": "KY CAM-ICU",
+  "short_name": "CAM-ICU",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f7",
+  "theme_color": "#0f6e86",
+  "icons": [
+    {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

@@ -1,4 +1,4 @@
-"""Colab 셀에서 `%run /content/cam_icu_rass_v7/colab_start.py`로 실행."""
+"""Colab 셀에서 `%run /content/cam_icu_rass_v11/colab_start.py`로 실행."""
 import os, re, subprocess, sys, time, threading
 from pathlib import Path
 
@@ -9,12 +9,27 @@ PORT = 8000
 try:
     from google.colab import drive
     drive.mount('/content/drive', force_remount=False)
-    DB_DIR = Path("/content/drive/MyDrive/KY_CAM_ICU_v7")
+    DB_DIR = Path("/content/drive/MyDrive/KY_CAM_ICU_v11")
     DB_DIR.mkdir(parents=True, exist_ok=True)
     os.environ["CAM_ICU_DB_PATH"] = str(DB_DIR / "cam_icu.db")
     print(f"✅ Google Drive 연동 → {os.environ['CAM_ICU_DB_PATH']}")
 except Exception as e:
     print(f"⚠️  Drive 연동 실패 ({e}) → 로컬 임시 저장으로 진행")
+
+# ── AI API 키 (Colab 왼쪽 🔑 Secrets) ─────────────────
+try:
+    from google.colab import userdata
+    for key_name in ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AI_PROVIDER", "AI_MODEL"):
+        try:
+            value = userdata.get(key_name)
+        except Exception:
+            value = None
+        if value:
+            os.environ[key_name] = value
+    found = [k for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY") if os.environ.get(k)]
+    print(f"🤖 AI 키: {', '.join(found) if found else '없음 → AI 해석은 사용 불가로 표시됩니다'}")
+except ImportError:
+    pass
 
 # 프로젝트 디렉터리를 임포트 경로 최상위에 추가
 sys.path.insert(0, str(PROJECT))
@@ -79,7 +94,7 @@ tunnel = subprocess.Popen(
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
 )
 for line in tunnel.stdout:
-    m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+    m = re.search(r"https://(?!api\.)[a-zA-Z0-9-]+\.trycloudflare\.com", line)
     if m:
         time.sleep(3)
         print("\n✅ 접속 링크:", m.group(0))
